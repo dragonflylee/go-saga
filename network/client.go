@@ -1,4 +1,4 @@
-package server
+package network
 
 import (
 	"bufio"
@@ -7,31 +7,32 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"log"
 	"math/big"
 	"net"
+
+	"github.com/golang/glog"
 )
 
 // NewClient 处理连接
-func NewClient(conn net.Conn, h Handler) io.Writer {
-	c := &wrapper{
-		auther: client(0),
+func NewClient(conn net.Conn, h Handler) *Conn {
+	c := &Conn{
+		auth:   clientAuth(0),
 		conn:   conn,
 		sendCh: make(chan []byte, 512),
 	}
 	go c.readPump(h)
-	log.Printf("handle client: %s", conn.RemoteAddr())
+	glog.Infof("new client: %s", conn.RemoteAddr())
 	return c
 }
 
-type client int
+type clientAuth int
 
-func (c client) Init(r io.Reader) error {
+func (c clientAuth) Init(r io.Reader) error {
 	_, err := r.Read(make([]byte, 4))
 	return err
 }
 
-func (c client) Auth(s *bufio.Scanner, w *bufio.Writer) ([]byte, error) {
+func (c clientAuth) Auth(s *bufio.Scanner, w *bufio.Writer) ([]byte, error) {
 	// 读取私钥
 	var (
 		m   [3]*big.Int
@@ -46,7 +47,7 @@ func (c client) Auth(s *bufio.Scanner, w *bufio.Writer) ([]byte, error) {
 		if m[i], ok = new(big.Int).SetString(s.Text(), 16); !ok {
 			return nil, fmt.Errorf("bad token %s", hex.EncodeToString(s.Bytes()))
 		}
-		log.Printf("recv m[%d] bit %d", i, m[i].BitLen())
+		glog.Infof("recv m[%d] bit %d", i, m[i].BitLen())
 	}
 	// 生成交换密钥
 	if p, err = rand.Prime(rand.Reader, 0x100); err != nil {

@@ -1,4 +1,4 @@
-package server
+package network
 
 import (
 	"bufio"
@@ -7,28 +7,29 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"log"
 	"math/big"
 	"net"
+
+	"github.com/golang/glog"
 )
 
 var two = big.NewInt(2)
 
 // HandleClient 处理连接
-func HandleClient(conn net.Conn, h Handler) io.Writer {
-	c := &wrapper{
-		auther: serve(0),
+func HandleClient(conn net.Conn, h Handler) *Conn {
+	c := &Conn{
+		auth:   serveAuth(0),
 		conn:   conn,
 		sendCh: make(chan []byte, 512),
 	}
 	go c.readPump(h)
-	log.Printf("handle client: %s", conn.RemoteAddr())
+	glog.Infof("handle client: %s", conn.RemoteAddr())
 	return c
 }
 
-type serve int
+type serveAuth int
 
-func (c serve) Init(r io.Reader) error {
+func (c serveAuth) Init(r io.Reader) error {
 	var sig uint64
 	// 读取握手消息
 	err := binary.Read(r, binary.BigEndian, &sig)
@@ -41,7 +42,7 @@ func (c serve) Init(r io.Reader) error {
 	return nil
 }
 
-func (c serve) Auth(s *bufio.Scanner, w *bufio.Writer) ([]byte, error) {
+func (c serveAuth) Auth(s *bufio.Scanner, w *bufio.Writer) ([]byte, error) {
 	var (
 		m, p *big.Int
 		err  error

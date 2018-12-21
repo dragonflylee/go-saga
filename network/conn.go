@@ -1,4 +1,4 @@
-package server
+package network
 
 import (
 	"bufio"
@@ -9,34 +9,39 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"log"
 	"net"
+	"sync"
+
+	"github.com/golang/glog"
 )
 
 // 缓存大小
 const maxBufSize = 0x1000
 
-type (
-	auther interface {
+// Conn 连接对象
+type Conn struct {
+	sync.Map
+	auth interface {
 		Init(r io.Reader) error
 		Auth(s *bufio.Scanner, w *bufio.Writer) ([]byte, error)
 	}
-
-	wrapper struct {
-		auther
-		conn   net.Conn
-		block  cipher.Block
-		sendCh chan []byte
-	}
-)
+	conn   net.Conn
+	block  cipher.Block
+	sendCh chan []byte
+}
 
 // String 实现接口 Stringer
-func (c *wrapper) String() string {
+func (c *Conn) String() string {
 	return c.conn.RemoteAddr().String()
 }
 
+// Close 关闭连接
+func (c *Conn) Close() error {
+	return c.conn.Close()
+}
+
 // Write 实现 io.Writer
-func (c *wrapper) Write(s []byte) (int, error) {
+func (c *Conn) Write(s []byte) (int, error) {
 	select {
 	case c.sendCh <- s:
 		return len(s), nil
@@ -46,11 +51,11 @@ func (c *wrapper) Write(s []byte) (int, error) {
 }
 
 // readPump 读线程
-func (c *wrapper) readPump(h Handler) {
+func (c *Conn) readPump(h Handler) {
 	defer c.conn.Close()
 
-	if err := c.Init(c.conn); err != nil {
-		log.Printf("init %s failed: %v", c, err)
+	if err := c.auth.Init(c.conn); err != nil {
+		glog.Warningf("init %s failed: %v", c, err)
 		return
 	}
 	// 读取数据
@@ -58,7 +63,7 @@ func (c *wrapper) readPump(h Handler) {
 	s.Split(func(data []byte, atEOF bool) (int, []byte, error) {
 		n := binary.BigEndian.Uint32(data[:4])
 		if n > 0xFFFF {
-			return 0, nil, bufio.ErrFinalToken
+			return len(data), nil, bufio.ErrFinalToken
 		}
 		if c.block == nil {
 			if len(data) < int(n+4) {
@@ -68,7 +73,7 @@ func (c *wrapper) readPump(h Handler) {
 			return int(n + 4), data[4 : n+4], nil
 		}
 		if int(n)%c.block.BlockSize() > 0 {
-			return 0, nil, bufio.ErrInvalidUnreadByte
+			return 0, nil, fmt.Errorf("block %d no padding", n)
 		}
 		if len(data) < int(n+8) {
 			// 还没读完
@@ -82,15 +87,15 @@ func (c *wrapper) readPump(h Handler) {
 		}
 		off := binary.BigEndian.Uint32(data[4:8])
 		if off+4 > n {
-			return 0, nil, bufio.ErrInvalidUnreadByte
+			return 0, nil, fmt.Errorf("offet %d too short %d", off, n)
 		}
 		return int(n + 8), data[8 : off+8], nil
 	})
 
 	// 初始化 AES 密钥
-	key, err := c.Auth(s, bufio.NewWriter(c.conn))
+	key, err := c.auth.Auth(s, bufio.NewWriter(c.conn))
 	if err != nil {
-		log.Printf("auth %s failed: %v", c, err)
+		glog.Warningf("auth %s failed: %v", c, err)
 		return
 	}
 	for i := 0; i < 16; i++ {
@@ -104,27 +109,27 @@ func (c *wrapper) readPump(h Handler) {
 		key[i] = high<<4 | low
 	}
 	if c.block, err = aes.NewCipher(key[:16]); err != nil {
-		log.Printf("init %s failed: %v", c, err)
+		glog.Warningf("init %s failed: %v", c, err)
 		return
 	}
-	log.Printf("init %s aes: %s", c, hex.EncodeToString(key[:16]))
+	glog.Infof("init %s aes: %s", c, hex.EncodeToString(key[:16]))
 	// 写线程
 	go c.writePump()
 	// 初始包
-	if err = h.Serve([]byte{0, 2, 0, 0}, c); err != nil {
-		log.Printf("serv %s failed: %v", c, err)
-	}
+	// if err = h.Serve([]byte{0, 2, 0, 0}, c); err != nil {
+	//	glog.Infof("serv %s failed: %v", c, err)
+	// }
 	// 处理数据包
 	for s.Scan() {
 		if err = h.Serve(s.Bytes(), c); err != nil {
-			log.Printf("serv %s failed: %v", c, err)
+			glog.Warningf("serv %s failed: %v", c, err)
 		}
 	}
-	log.Printf("recv %s closed: %v", c, s.Err())
+	glog.Infof("recv %s closed: %v", c, s.Err())
 }
 
 // writePump 写线程
-func (c *wrapper) writePump() {
+func (c *Conn) writePump() {
 	defer c.conn.Close()
 
 	buf := make([]byte, maxBufSize)
@@ -148,7 +153,7 @@ func (c *wrapper) writePump() {
 			i = end
 		}
 		if _, err := c.conn.Write(buf[:size+8]); err != nil {
-			log.Printf("send %s failed: %v", c, err)
+			glog.Warningf("write %s failed: %v", c, err)
 			break
 		}
 	}

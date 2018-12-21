@@ -2,35 +2,33 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"crypto/md5"
 	"crypto/sha1"
 	"encoding/binary"
 	"encoding/hex"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"net"
+	"strings"
 
-	"github.com/dragonflylee/go-saga/server"
+	"github.com/dragonflylee/go-saga/network"
 )
 
 func main() {
-	addr := flag.String("addr", "127.0.0.1:12001", "server address")
+	addr := flag.String("addr", "127.0.0.1:9090", "server address")
 	flag.Parse()
 
-	r := make(server.Route)
-	r.Handle(0x0000, func(data []byte, c io.Writer) error {
-		w := newPacket(10, 0x0001)
-		hex.Decode(w[4:], []byte("000003e8015f3771"))
-		_, err := c.Write(w)
-		return err
+	r := make(network.Route)
+	r.Handle(0x0000, func(data []byte, c *network.Conn) error {
+		w := bufio.NewWriter(c)
+		network.Packet(w, 0x0a, 0x0001, uint64(0x3e8015f3771))
+		return w.Flush()
 	})
-	r.Handle(0x0002, func(data []byte, c io.Writer) error {
+	r.Handle(0x0002, func(data []byte, c *network.Conn) error {
 		return nil
 	})
-	r.Handle(0x0020, func(data []byte, c io.Writer) error {
+	r.Handle(0x0020, func(data []byte, c *network.Conn) error {
 		result := binary.BigEndian.Uint32(data[:4])
 		switch int32(result) {
 		case 0:
@@ -50,43 +48,43 @@ func main() {
 		}
 		return nil
 	})
-	r.Handle(0x001e, func(data []byte, c io.Writer) error {
-		w := newPacket(55, 0x001f)
-
-		w[4] = byte(copy(w[5:], []byte("dragonfly2")) + 1)
-		log.Printf("allow %d: %s", len(data), hex.EncodeToString(data))
+	r.Handle(0x001e, func(data []byte, c *network.Conn) error {
+		var m struct {
+			Front, Back uint32
+		}
+		network.Unmarshal(data, &m)
+		log.Printf("allow 0x%08x, 0x%08x", m.Front, m.Back)
 
 		hash := md5.Sum([]byte("lilongfei"))
 		token := sha1.Sum([]byte(fmt.Sprintf("%d%s%d", binary.BigEndian.Uint32(data[:4]),
 			hex.EncodeToString(hash[:]), binary.BigEndian.Uint32(data[4:]))))
-		pass := []byte(hex.EncodeToString(token[:]))
-		w[5+w[4]] = byte(copy(w[6+w[4]:], pass) + 1)
 
-		_, err := c.Write(w)
-		log.Printf("send login: %d", len(w))
+		w := bufio.NewWriter(c)
+		network.Packet(w, 0x50, 0x001f, "dragonfly2", hex.EncodeToString(token[:]))
+		log.Printf("send login: %d", w.Buffered())
 
-		_, err = c.Write(newPacket(2, 0x002f))
-		return err
+		network.Packet(w, 0x02, 0x002f)
+		return w.Flush()
 	})
-	r.Handle(0x000b, func(data []byte, c io.Writer) error {
+	r.Handle(0x000b, func(data []byte, c *network.Conn) error {
 		return nil
 	})
-	r.Handle(0x0030, func(data []byte, c io.Writer) error {
-		_, err := c.Write(newPacket(2, 0x0031))
-		return err
+	r.Handle(0x0030, func(data []byte, c *network.Conn) error {
+		w := bufio.NewWriter(c)
+		network.Packet(w, 0x02, 0x0031)
+		return w.Flush()
 	})
-	r.Handle(0x0033, func(data []byte, c io.Writer) error {
-		s := bufio.NewScanner(bytes.NewReader(data))
-		s.Split(func(data []byte, atEOF bool) (int, []byte, error) {
-			n := int(data[0])
-			if atEOF || n <= 0 {
-				return len(data) + 1, nil, nil
-			}
-			return int(n + 1), data[1:n], nil
-		})
-		for s.Scan() {
-			log.Printf("recv %s map %s", c, s.Text())
+	r.Handle(0x0033, func(data []byte, c *network.Conn) error {
+		var m struct {
+			Server string
+			Addr   string
 		}
+		network.Unmarshal(data, &m)
+		n := strings.LastIndex(m.Addr, ",")
+		if n > 0 && len(m.Addr) > n {
+			m.Addr = m.Addr[n+1:]
+		}
+		log.Printf("recv %s map %s", c, m.Addr)
 		return nil
 	})
 
@@ -94,7 +92,7 @@ func main() {
 	select {}
 }
 
-func startClient(address string, r server.Route) {
+func startClient(address string, r network.Route) {
 	conn, err := net.Dial("tcp", address)
 	if err != nil {
 		log.Fatal(err)
@@ -105,13 +103,5 @@ func startClient(address string, r server.Route) {
 	if err = binary.Write(conn, binary.BigEndian, uint64(0x10)); err != nil {
 		log.Fatal(err)
 	}
-	server.NewClient(conn, r)
-}
-
-// newPacket 新封包
-func newPacket(len, id uint16) []byte {
-	w := make([]byte, len+2)
-	binary.BigEndian.PutUint16(w[:2], len)
-	binary.BigEndian.PutUint16(w[2:4], id)
-	return w
+	network.NewClient(conn, r)
 }

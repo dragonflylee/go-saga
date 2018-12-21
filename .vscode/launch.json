@@ -16,7 +16,7 @@
             "mode": "exec",
             "program": "${workspaceFolder}/${workspaceFolderBasename}",
             "preLaunchTask": "build",
-            "args": ["-mode=login"]
+            "args": ["-logtostderr"]
         }
     ]
 }
