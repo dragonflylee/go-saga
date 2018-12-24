@@ -16,7 +16,15 @@
             "mode": "exec",
             "program": "${workspaceFolder}/${workspaceFolderBasename}",
             "preLaunchTask": "build",
-            "args": ["-logtostderr"]
+            "args": ["-d", "-logtostderr"]
+        },
+        {
+            "name": "Test",
+            "type": "go",
+            "request": "launch",
+            "mode": "test",
+            "program": "${workspaceFolder}/test",
+            "args": ["-d", "-logtostderr"]
         }
     ]
 }

@@ -6,11 +6,11 @@ type User struct {
 	Username        string `gorm:"size:30;not null"`
 	Password        string `gorm:"size:32;not null"`
 	DelPass         string `gorm:"size:32;not null"`
-	Banned          uint8  `gorm:"not null;default 0"`
-	GMLevel         uint8  `gorm:"not null;default 0"`
-	Bank            int64  `gorm:"not null;default 0"`
-	VshopPoints     int64  `gorm:"not null;default 0"`
-	UsedVshopPoints int64  `gorm:"not null;default 0"`
+	Banned          uint8  `gorm:"size:3;not null;default 0"`
+	GMLevel         uint8  `gorm:"size:3;not null;default 0"`
+	Bank            int64  `gorm:"size:10;not null;default 0"`
+	VshopPoints     int64  `gorm:"size:10;not null;default 0"`
+	UsedVshopPoints int64  `gorm:"size:10;not null;default 0"`
 	LastIP          string `gorm:"size:20"`
 }
 

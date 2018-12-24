@@ -14,13 +14,12 @@ import (
 )
 
 // NewClient 处理连接
-func NewClient(conn net.Conn, h Handler) *Conn {
+func NewClient(conn net.Conn) *Conn {
 	c := &Conn{
 		auth:   clientAuth(0),
 		conn:   conn,
 		sendCh: make(chan []byte, 512),
 	}
-	go c.readPump(h)
 	glog.Infof("new client: %s", conn.RemoteAddr())
 	return c
 }

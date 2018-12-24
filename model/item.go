@@ -4,21 +4,21 @@ package model
 type EquipSlot int
 
 const (
-	// Head 头部装备
-	Head EquipSlot = iota
-	HeadAcce
-	Face
-	FaceAcce
-	ChestAcce
-	UpperBody
-	LowerBody
-	Body
-	RightHand
-	LeftHand
-	Shoes
-	Socks
-	Pet
+	// SlotHead 头部装备
+	SlotHead EquipSlot = iota
+	SlotHeadAcce
+	SlotFace
+	SlotFaceAcce
+	SlotChestAcce
+	SlotUpperBody
+	SlotLowerBody
+	SlotBack
+	SlotRightHand
+	SlotLeftHand
+	SlotShoes
+	SlotSocks
+	SlotPet
 )
 
-// ItemType 道具类型
-type ItemType int
+// SlotType 道具类型
+type SlotType int

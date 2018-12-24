@@ -6,8 +6,6 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
-	"io"
-	"log"
 	"net"
 	"strings"
 	"sync"
@@ -48,7 +46,7 @@ func listenPort(remote string) *net.TCPAddr {
 
 	l, err := net.Listen("tcp", addr.String())
 	if err != nil {
-		log.Fatalf("listen fail: %v", err)
+		glog.Fatalf("listen fail: %v", err)
 	}
 	go func() {
 		defer l.Close()
@@ -67,15 +65,17 @@ func listenPort(remote string) *net.TCPAddr {
 }
 
 func handleConn(c net.Conn, remote string) {
+	defer c.Close()
+
 	r, err := net.Dial("tcp", remote)
 	if err != nil {
 		glog.Warningf("dial %s fail: %v", c.RemoteAddr(), err)
-		c.Close()
 		return
 	}
+	defer r.Close()
 
-	var to, from io.Writer
-	from = network.HandleClient(c, network.HandleFunc(func(data []byte, w *network.Conn) error {
+	to := network.NewClient(r)
+	from := network.HandleClient(c, network.HandleFunc(func(data []byte, w *network.Conn) error {
 		glog.Infof("send %s: %s", r.RemoteAddr(), hex.EncodeToString(data))
 		_, err := to.Write(data)
 		if err != nil {
@@ -84,10 +84,16 @@ func handleConn(c net.Conn, remote string) {
 		return err
 	}))
 
-	to = network.NewClient(r, network.HandleFunc(func(data []byte, w *network.Conn) error {
+	// 握手包
+	if err = binary.Write(r, binary.BigEndian, uint64(0x10)); err != nil {
+		glog.Warningf("dial %s fail: %v", c.RemoteAddr(), err)
+		return
+	}
+
+	to.Run(network.HandleFunc(func(data []byte, w *network.Conn) error {
 		glog.Infof("recv %s: %s", r.RemoteAddr(), hex.EncodeToString(data))
 		if len(data) > 4 && binary.BigEndian.Uint16(data[2:4]) == 0x33 {
-			if data[5] != 0x10 {
+			if len(data) > 0x32 {
 				var m struct {
 					Server string
 					Addr   string
@@ -102,7 +108,7 @@ func handleConn(c net.Conn, remote string) {
 				b := &bytes.Buffer{}
 				network.Packet(b, uint16(len(data)-2), 0x33, m)
 				data = b.Bytes()
-			} else {
+			} else if len(data) > 0x16 {
 				var m struct {
 					ID   byte
 					Addr string
@@ -125,13 +131,4 @@ func handleConn(c net.Conn, remote string) {
 		}
 		return err
 	}))
-
-	// 握手包
-	if err = binary.Write(r, binary.BigEndian, uint64(0x10)); err != nil {
-		glog.Warningf("dial %s fail: %v", c.RemoteAddr(), err)
-		r.Close()
-		c.Close()
-		return
-	}
-
 }

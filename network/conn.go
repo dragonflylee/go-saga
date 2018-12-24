@@ -50,8 +50,8 @@ func (c *Conn) Write(s []byte) (int, error) {
 	}
 }
 
-// readPump 读线程
-func (c *Conn) readPump(h Handler) {
+// Run 读线程
+func (c *Conn) Run(h Handler) {
 	defer c.conn.Close()
 
 	if err := c.auth.Init(c.conn); err != nil {
@@ -87,14 +87,15 @@ func (c *Conn) readPump(h Handler) {
 		}
 		off := binary.BigEndian.Uint32(data[4:8])
 		if off+4 > n {
-			return 0, nil, fmt.Errorf("offet %d too short %d", off, n)
+			glog.Warningf("offet %d short %d: %s", off, n, hex.EncodeToString(data[:n+8]))
+			return int(n + 8), data[8 : off+8], nil
 		}
 		return int(n + 8), data[8 : off+8], nil
 	})
 
 	// 初始化 AES 密钥
 	key, err := c.auth.Auth(s, bufio.NewWriter(c.conn))
-	if err != nil {
+	if err != nil || len(key) < 16 {
 		glog.Warningf("auth %s failed: %v", c, err)
 		return
 	}
@@ -115,10 +116,6 @@ func (c *Conn) readPump(h Handler) {
 	glog.Infof("init %s aes: %s", c, hex.EncodeToString(key[:16]))
 	// 写线程
 	go c.writePump()
-	// 初始包
-	// if err = h.Serve([]byte{0, 2, 0, 0}, c); err != nil {
-	//	glog.Infof("serv %s failed: %v", c, err)
-	// }
 	// 处理数据包
 	for s.Scan() {
 		if err = h.Serve(s.Bytes(), c); err != nil {

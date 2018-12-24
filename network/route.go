@@ -44,7 +44,7 @@ func (r Route) Serve(data []byte, c *Conn) error {
 		} else if err := h.Serve(m.Bytes(), c); err != nil {
 			glog.Warningf("recv %s msg 0x%04x failed: %v", c, id, err)
 		} else if id > 0 {
-			glog.Infof("recv %s msg 0x%04x: %d", c, id, len(m.Bytes()))
+			// glog.Infof("recv %s msg 0x%04x: %d", c, id, len(m.Bytes()))
 		}
 	}
 	return m.Err()

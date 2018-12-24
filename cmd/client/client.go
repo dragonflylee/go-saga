@@ -8,23 +8,17 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
-	"log"
 	"net"
-	"strings"
 
 	"github.com/dragonflylee/go-saga/network"
+	"github.com/golang/glog"
 )
 
 func main() {
-	addr := flag.String("addr", "127.0.0.1:9090", "server address")
+	addr := flag.String("addr", "127.0.0.1:9091", "server address")
 	flag.Parse()
 
 	r := make(network.Route)
-	r.Handle(0x0000, func(data []byte, c *network.Conn) error {
-		w := bufio.NewWriter(c)
-		network.Packet(w, 0x0a, 0x0001, uint64(0x3e8015f3771))
-		return w.Flush()
-	})
 	r.Handle(0x0002, func(data []byte, c *network.Conn) error {
 		return nil
 	})
@@ -32,19 +26,19 @@ func main() {
 		result := binary.BigEndian.Uint32(data[:4])
 		switch int32(result) {
 		case 0:
-			log.Printf("login ok")
+			glog.Infof("login ok")
 		case -2:
-			log.Printf("unknown account")
+			glog.Infof("unknown account")
 		case -3:
-			log.Printf("password incorrect")
+			glog.Infof("password incorrect")
 		case -4:
-			log.Printf("account locked")
+			glog.Infof("account locked")
 		case -5:
-			log.Printf("account reset")
+			glog.Infof("account reset")
 		case -6:
-			log.Printf("maintenance")
+			glog.Infof("maintenance")
 		default:
-			log.Printf("login error: 0x%08x", result)
+			glog.Infof("login error: 0x%08x", result)
 		}
 		return nil
 	})
@@ -53,7 +47,7 @@ func main() {
 			Front, Back uint32
 		}
 		network.Unmarshal(data, &m)
-		log.Printf("allow 0x%08x, 0x%08x", m.Front, m.Back)
+		glog.Infof("allow 0x%08x, 0x%08x", m.Front, m.Back)
 
 		hash := md5.Sum([]byte("lilongfei"))
 		token := sha1.Sum([]byte(fmt.Sprintf("%d%s%d", binary.BigEndian.Uint32(data[:4]),
@@ -61,7 +55,7 @@ func main() {
 
 		w := bufio.NewWriter(c)
 		network.Packet(w, 0x50, 0x001f, "dragonfly2", hex.EncodeToString(token[:]))
-		log.Printf("send login: %d", w.Buffered())
+		glog.Infof("send login: %d", w.Buffered())
 
 		network.Packet(w, 0x02, 0x002f)
 		return w.Flush()
@@ -80,28 +74,30 @@ func main() {
 			Addr   string
 		}
 		network.Unmarshal(data, &m)
-		n := strings.LastIndex(m.Addr, ",")
-		if n > 0 && len(m.Addr) > n {
-			m.Addr = m.Addr[n+1:]
-		}
-		log.Printf("recv %s map %s", c, m.Addr)
+		glog.Infof("recv %s map %s", c, m.Addr)
 		return nil
 	})
 
 	startClient(*addr, r)
-	select {}
 }
 
 func startClient(address string, r network.Route) {
 	conn, err := net.Dial("tcp", address)
 	if err != nil {
-		log.Fatal(err)
+		glog.Fatal(err)
 	}
-	log.Printf("dial %s ok", conn.RemoteAddr())
+	glog.Infof("dial %s ok", conn.RemoteAddr())
 
 	// 握手包
 	if err = binary.Write(conn, binary.BigEndian, uint64(0x10)); err != nil {
-		log.Fatal(err)
+		glog.Fatal(err)
 	}
-	network.NewClient(conn, r)
+	c := network.NewClient(conn)
+	// 初始包
+	w := bufio.NewWriter(c)
+	network.Packet(w, 0x0a, 0x0001, uint64(0x3e8015f3771))
+	if err = w.Flush(); err != nil {
+		glog.Fatal(err)
+	}
+	c.Run(r)
 }

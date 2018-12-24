@@ -16,13 +16,13 @@ import (
 var two = big.NewInt(2)
 
 // HandleClient 处理连接
-func HandleClient(conn net.Conn, h Handler) *Conn {
+func HandleClient(conn net.Conn, h Handler) io.WriteCloser {
 	c := &Conn{
 		auth:   serveAuth(0),
 		conn:   conn,
 		sendCh: make(chan []byte, 512),
 	}
-	go c.readPump(h)
+	go c.Run(h)
 	glog.Infof("handle client: %s", conn.RemoteAddr())
 	return c
 }
